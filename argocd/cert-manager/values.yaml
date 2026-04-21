@@ -1,0 +1,8 @@
+# Overridden by ArgoCD Application helm parameters (see examples/bootstrap-gitops/).
+# Required: letsencryptEmail and acmeServer.
+letsencryptEmail: ""
+acmeServer: "https://acme-staging-v02.api.letsencrypt.org/directory"
+issuerName: "letsencrypt-prod"
+
+cert-manager:
+  installCRDs: true
