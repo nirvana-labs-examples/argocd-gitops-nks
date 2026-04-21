@@ -111,6 +111,8 @@ After the two-phase `terraform apply`, any change to `argocd/argocd/values.yaml`
 
 ## How self-management works
 
+This is the pattern upstream Argo CD documents as [Manage Argo CD using Argo CD](https://argo-cd.readthedocs.io/en/stable/operator-manual/declarative-setup/#manage-argo-cd-using-argo-cd).
+
 The second apply creates two ArgoCD `Application`s:
 
 - **`argocd`** — `path: argocd/argocd` — ArgoCD manages its own Helm values.
