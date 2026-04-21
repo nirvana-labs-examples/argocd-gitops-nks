@@ -1,0 +1,32 @@
+# This file is the source of truth for ArgoCD config on the cluster.
+# Terraform reads it on bootstrap via helm_release.values and passes it
+# to `helm install`. After bootstrap, the self-management Application
+# reconciles this same file into the cluster.
+#
+# Terraform overrides these fields at install time (see examples/):
+#   - global.domain
+#   - server.ingress.extraTls[0].hosts[0]
+
+argo-cd:
+  global:
+    # Overridden by Terraform: "argocd.<ingress_ip>.nip.io" by default
+    domain: argocd.example.com
+
+  configs:
+    params:
+      # Cilium ingress terminates TLS, so ArgoCD serves plaintext inside the cluster
+      server.insecure: true
+
+  server:
+    ingress:
+      enabled: true
+      ingressClassName: cilium
+      annotations:
+        ingress.cilium.io/loadbalancer-mode: shared
+        cert-manager.io/cluster-issuer: letsencrypt-prod
+      tls: true
+      extraTls:
+        - secretName: tls-argocd-ingress
+          hosts:
+            # Overridden by Terraform
+            - argocd.example.com
