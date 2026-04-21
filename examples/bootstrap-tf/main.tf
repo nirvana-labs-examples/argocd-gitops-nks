@@ -82,6 +82,9 @@ resource "kubectl_manifest" "letsencrypt_issuer" {
 resource "helm_release" "argocd" {
   count = var.fetch_kubeconfig ? 1 : 0
 
+  # When letsencrypt_email is null, letsencrypt_issuer has count=0 and this
+  # depends_on is a no-op. Otherwise we wait for the issuer so the ingress
+  # can request a cert immediately after install.
   depends_on = [kubectl_manifest.letsencrypt_issuer]
 
   name             = "argocd"

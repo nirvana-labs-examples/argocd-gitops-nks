@@ -98,7 +98,7 @@ Pick `bootstrap-tf` for a simpler bootstrap sequence. Pick `bootstrap-gitops` if
 6. **Second apply** — installs cert-manager, ArgoCD, and the self-management Application:
 
    ```bash
-   export TF_VAR_ingress_public_ip=<the IP from step 4>
+   export TF_VAR_ingress_public_ip=<the IP from step 5>
    export TF_VAR_letsencrypt_email=<your email>
    export TF_VAR_fetch_kubeconfig=true
    terraform apply
