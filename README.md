@@ -111,7 +111,7 @@ After the two-phase `terraform apply`, any change to `argocd/argocd/values.yaml`
 
 ## How self-management works
 
-This is the pattern upstream Argo CD documents as [Manage Argo CD using Argo CD](https://argo-cd.readthedocs.io/en/stable/operator-manual/declarative-setup/#manage-argo-cd-using-argo-cd).
+This is the pattern upstream Argo CD documents as [Manage Argo CD Using Argo CD](https://argo-cd.readthedocs.io/en/stable/operator-manual/declarative-setup/#manage-argo-cd-using-argo-cd). We use Helm rather than the upstream Kustomize suggestion — same `Application` + `ServerSideApply=true` pattern, different tooling — so the `values.yaml` in your fork is the single source of truth for both the initial Terraform install and ArgoCD's reconciliation.
 
 The second apply creates two ArgoCD `Application`s:
 
