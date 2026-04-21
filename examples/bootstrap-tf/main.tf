@@ -104,3 +104,56 @@ resource "helm_release" "argocd" {
     value = local.argocd_hostname
   }
 }
+
+# ArgoCD Application that points back at this repo, managing the ArgoCD
+# installation as GitOps. After this applies, any change to
+# argocd/argocd/values.yaml in the repo reconciles into the cluster.
+#
+# kubectl_manifest (not kubernetes_manifest): Application is an ArgoCD CRD
+# that only exists after helm_release.argocd installs the chart.
+resource "kubectl_manifest" "argocd_self_app" {
+  count = var.fetch_kubeconfig ? 1 : 0
+
+  depends_on = [helm_release.argocd]
+
+  yaml_body = yamlencode({
+    apiVersion = "argoproj.io/v1alpha1"
+    kind       = "Application"
+    metadata = {
+      name      = "argocd"
+      namespace = "argocd"
+      # Finalizer enables cascading deletion of managed resources when the
+      # Application is removed.
+      finalizers = ["resources-finalizer.argocd.argoproj.io"]
+    }
+    spec = {
+      project = "default"
+      source = {
+        repoURL        = var.argocd_repo_url
+        targetRevision = var.argocd_repo_branch
+        path           = "argocd/argocd"
+        helm = {
+          releaseName = "argocd"
+          parameters = [
+            { name = "argo-cd.global.domain", value = local.argocd_hostname },
+            { name = "argo-cd.server.ingress.extraTls[0].hosts[0]", value = local.argocd_hostname },
+          ]
+        }
+      }
+      destination = {
+        server    = "https://kubernetes.default.svc"
+        namespace = "argocd"
+      }
+      syncPolicy = {
+        automated = {
+          prune    = true
+          selfHeal = true
+        }
+        syncOptions = [
+          "CreateNamespace=true",
+          "ServerSideApply=true",
+        ]
+      }
+    }
+  })
+}
