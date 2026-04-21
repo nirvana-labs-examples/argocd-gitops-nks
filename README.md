@@ -50,7 +50,7 @@ After the two-phase `terraform apply`, any change to `argocd/argocd/values.yaml`
 
 - [Terraform](https://www.terraform.io/downloads.html) ≥ 1.5
 - [kubectl](https://kubernetes.io/docs/tasks/tools/) + [helm](https://helm.sh/docs/intro/install/) (for manual install path and verification)
-- A [Nirvana Labs API key](https://console.nirvanalabs.io)
+- A [Nirvana Labs API key](https://dashboard.nirvanalabs.io/)
 - A fork of this repo — public fork = zero credentials; private fork = SSH deploy key (see below)
 
 ## Quick start (public IP + Let's Encrypt)
@@ -86,7 +86,7 @@ After the two-phase `terraform apply`, any change to `argocd/argocd/values.yaml`
 
 5. **Enable the public IP on cilium-ingress:**
 
-   - Open the [Nirvana Console](https://console.nirvanalabs.io).
+   - Open the [Nirvana dashboard](https://dashboard.nirvanalabs.io/).
    - Clusters → your cluster → **Load Balancers** tab.
    - Click the ⋮ menu next to `cilium-ingress` → **Enable Public IP**.
    - Copy the public IP that appears.
