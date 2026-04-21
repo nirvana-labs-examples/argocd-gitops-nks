@@ -157,3 +157,29 @@ resource "kubectl_manifest" "argocd_self_app" {
     }
   })
 }
+
+# Optional: SSH deploy key for private forks. Count-gated — if the user
+# leaves repo_ssh_private_key_path null, this resource is skipped and
+# ArgoCD falls back to anonymous HTTPS (which only works for public forks).
+#
+# The Secret.data.url field must exactly match the Application's repoURL
+# for ArgoCD to pair them — both come from var.argocd_repo_url.
+resource "kubernetes_secret" "argocd_repo" {
+  count = var.fetch_kubeconfig && var.repo_ssh_private_key_path != null ? 1 : 0
+
+  depends_on = [helm_release.argocd]
+
+  metadata {
+    name      = "argocd-repo"
+    namespace = "argocd"
+    labels = {
+      "argocd.argoproj.io/secret-type" = "repository"
+    }
+  }
+
+  data = {
+    type          = "git"
+    url           = var.argocd_repo_url
+    sshPrivateKey = file(pathexpand(var.repo_ssh_private_key_path))
+  }
+}
