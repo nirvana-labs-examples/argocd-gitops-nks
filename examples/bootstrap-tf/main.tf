@@ -73,3 +73,34 @@ resource "kubectl_manifest" "letsencrypt_issuer" {
     }
   })
 }
+
+# ArgoCD installed from the local wrapper chart (argocd/argocd/). The chart
+# depends on the upstream argo-cd chart; values.yaml nests overrides under
+# `argo-cd:`. This is the same path that ArgoCD's self-management
+# Application reconciles against (see Task 8), so Terraform and ArgoCD
+# agree on exactly what's installed.
+resource "helm_release" "argocd" {
+  count = var.fetch_kubeconfig ? 1 : 0
+
+  depends_on = [kubectl_manifest.letsencrypt_issuer]
+
+  name             = "argocd"
+  namespace        = "argocd"
+  create_namespace = true
+
+  chart = local.argocd_chart_path
+
+  # Read the native YAML file — same file `helm install -f` would use,
+  # same file ArgoCD reconciles later.
+  values = [file("${local.argocd_chart_path}/values.yaml")]
+
+  set {
+    name  = "argo-cd.global.domain"
+    value = local.argocd_hostname
+  }
+
+  set {
+    name  = "argo-cd.server.ingress.extraTls[0].hosts[0]"
+    value = local.argocd_hostname
+  }
+}
