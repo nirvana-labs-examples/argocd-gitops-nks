@@ -72,13 +72,15 @@ After the two-phase `terraform apply`, any change to `argocd/argocd/values.yaml`
    export TF_VAR_argocd_repo_url=https://github.com/<your-user>/argocd-gitops-nks.git
    ```
 
-4. **First apply** — creates the cluster:
+4. **First apply** — creates the cluster only:
 
    ```bash
    cd terraform
    terraform init
-   terraform apply
+   terraform apply -target=module.nks
    ```
+
+   The `-target` scopes this apply to cluster provisioning so the Kubernetes providers (which need a kubeconfig that doesn't exist yet) aren't invoked. Terraform prints a warning that `-target` is for "exceptional circumstances" — the two-phase NKS bootstrap is one.
 
    Wait ~5 minutes for the control plane to become reachable.
 

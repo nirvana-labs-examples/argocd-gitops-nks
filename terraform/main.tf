@@ -26,8 +26,6 @@ locals {
 # Application (below) syncs the wrapper chart from this repo — which
 # includes the Let's Encrypt ClusterIssuer in its templates.
 resource "helm_release" "argocd" {
-  count = var.fetch_kubeconfig ? 1 : 0
-
   name             = "argocd"
   namespace        = "argocd"
   create_namespace = true
@@ -47,10 +45,9 @@ resource "helm_release" "argocd" {
   }
 }
 
-# Self-management Application — identical to bootstrap-tf.
+# Self-management Application: ArgoCD reconciles argocd/argocd/ from the
+# fork so future changes to values.yaml don't require Terraform.
 resource "kubectl_manifest" "argocd_self_app" {
-  count = var.fetch_kubeconfig ? 1 : 0
-
   depends_on = [helm_release.argocd]
 
   yaml_body = yamlencode({
@@ -87,12 +84,12 @@ resource "kubectl_manifest" "argocd_self_app" {
   })
 }
 
-# cert-manager as an ArgoCD Application — the key difference from bootstrap-tf.
-# Points at argocd/cert-manager/ wrapper chart, which installs cert-manager
-# via a dependency on the jetstack chart AND applies a ClusterIssuer from
-# its own templates/ once the cert-manager CRDs are registered.
+# cert-manager as an ArgoCD Application. Points at argocd/cert-manager/
+# wrapper chart, which installs cert-manager via a dependency on the jetstack
+# chart AND applies a ClusterIssuer from its own templates/ once the
+# cert-manager CRDs are registered. Skipped when letsencrypt_email is null.
 resource "kubectl_manifest" "cert_manager_app" {
-  count = var.fetch_kubeconfig && var.letsencrypt_email != null ? 1 : 0
+  count = var.letsencrypt_email != null ? 1 : 0
 
   depends_on = [helm_release.argocd]
 
@@ -136,9 +133,9 @@ resource "kubectl_manifest" "cert_manager_app" {
   })
 }
 
-# Optional: SSH deploy key for private forks — identical to bootstrap-tf.
+# Optional: SSH deploy key for private forks.
 resource "kubernetes_secret" "argocd_repo" {
-  count = var.fetch_kubeconfig && var.repo_ssh_private_key_path != null ? 1 : 0
+  count = var.repo_ssh_private_key_path != null ? 1 : 0
 
   depends_on = [helm_release.argocd]
 
