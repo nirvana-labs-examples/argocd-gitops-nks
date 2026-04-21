@@ -24,24 +24,27 @@ flowchart LR
         ingress[cilium-ingress<br/>LoadBalancer]
         certmgr[cert-manager]
         argocd[argo-cd]
-        app[Application CR<br/>self]
-        argocd --- app
+        app_self[Application CR<br/>argocd self]
+        app_cm[Application CR<br/>cert-manager]
+        argocd --- app_self
+        argocd --- app_cm
     end
 
     subgraph fork["your fork"]
         vals["argocd/argocd/<br/>(values.yaml)"]
-        cm["argocd/cert-manager/<br/>(variant B only)"]
+        cm["argocd/cert-manager/<br/>(templates + values)"]
     end
 
     tf -- "terraform-nirvana-nks" --> cluster
-    tf -. "helm_release" .-> certmgr
     tf -. "helm_release" .-> argocd
-    tf -. "kubectl_manifest" .-> app
-    app == "reconciles" ==> vals
-    app -. "variant B" .-> cm
+    tf -. "kubectl_manifest" .-> app_self
+    tf -. "kubectl_manifest" .-> app_cm
+    app_self == "reconciles" ==> vals
+    app_cm == "reconciles" ==> cm
+    app_cm -- "deploys" --> certmgr
 ```
 
-After the two-phase `terraform apply`, any change to `argocd/argocd/values.yaml` in your fork reconciles into the cluster without re-running Terraform.
+After the two-phase `terraform apply`, any change to `argocd/argocd/values.yaml` or `argocd/cert-manager/` in your fork reconciles into the cluster without re-running Terraform.
 
 ## Prerequisites
 
@@ -50,24 +53,15 @@ After the two-phase `terraform apply`, any change to `argocd/argocd/values.yaml`
 - A [Nirvana Labs API key](https://console.nirvanalabs.io)
 - A fork of this repo — public fork = zero credentials; private fork = SSH deploy key (see below)
 
-## Choosing an example
-
-| Directory | What's Terraform-installed | What's GitOps-managed |
-|---|---|---|
-| `examples/bootstrap-tf/` | NKS cluster, cert-manager, ClusterIssuer, ArgoCD | ArgoCD itself (self-management) |
-| `examples/bootstrap-gitops/` | NKS cluster, ArgoCD | ArgoCD itself + cert-manager (+ ClusterIssuer) |
-
-Pick `bootstrap-tf` for a simpler bootstrap sequence. Pick `bootstrap-gitops` if you want to see the pattern for adding new ArgoCD-managed apps — cert-manager demonstrates it.
-
 ## Quick start (public IP + Let's Encrypt)
 
 1. **Fork this repo** on GitHub. Clone your fork locally.
 
-2. **Fetch Helm chart dependencies** — `charts/` directories are gitignored, so the upstream `argo-cd` (and `cert-manager` for variant B) tarballs need to be fetched once per clone:
+2. **Fetch Helm chart dependencies** — `charts/` directories are gitignored, so the upstream chart tarballs need to be fetched once per clone:
 
    ```bash
    helm dependency build argocd/argocd
-   helm dependency build argocd/cert-manager    # variant B only
+   helm dependency build argocd/cert-manager
    ```
 
 3. **Set required variables:**
@@ -81,7 +75,7 @@ Pick `bootstrap-tf` for a simpler bootstrap sequence. Pick `bootstrap-gitops` if
 4. **First apply** — creates the cluster:
 
    ```bash
-   cd examples/bootstrap-tf     # or bootstrap-gitops
+   cd terraform
    terraform init
    terraform apply
    ```
@@ -115,12 +109,15 @@ Pick `bootstrap-tf` for a simpler bootstrap sequence. Pick `bootstrap-gitops` if
 
 ## How self-management works
 
-The second apply creates one ArgoCD `Application` named `argocd` with `path: argocd/argocd` pointing at your fork. ArgoCD reconciles that path against the live install.
+The second apply creates two ArgoCD `Application`s:
 
-From now on, any change to `argocd/argocd/values.yaml` in your fork — new RBAC rules, changed domain, additional configmaps — gets applied by ArgoCD without Terraform involvement. To add a new app:
+- **`argocd`** — `path: argocd/argocd` — ArgoCD manages its own Helm values.
+- **`cert-manager`** — `path: argocd/cert-manager` — cert-manager chart + Let's Encrypt `ClusterIssuer` are reconciled from the repo, not Terraform.
+
+From now on, any change to `argocd/argocd/values.yaml` or `argocd/cert-manager/` in your fork — new RBAC rules, changed domain, additional configmaps — gets applied by ArgoCD without Terraform involvement. To add a new app:
 
 1. Create `argocd/<new-app>/` with a Helm chart or Kustomize manifests.
-2. Create another ArgoCD Application (in `bootstrap-gitops/main.tf` or directly in the cluster) pointing at that path.
+2. Create another ArgoCD Application (in `terraform/main.tf` or directly in the cluster) pointing at that path.
 
 ## Using your own hostname
 
@@ -149,7 +146,7 @@ Options for private TLS:
 Skip Terraform for the ArgoCD install — Terraform still needs to create the cluster:
 
 ```bash
-cd examples/bootstrap-tf && terraform apply   # first apply only, creates cluster
+cd terraform && terraform apply   # first apply only, creates cluster
 # ... enable public IP, fetch kubeconfig manually ...
 
 helm install argocd ./argocd/argocd \
@@ -200,7 +197,7 @@ Terraform creates a `kubernetes_secret` labeled `argocd.argoproj.io/secret-type=
 ## Cleanup
 
 ```bash
-cd examples/<dir>
+cd terraform
 terraform destroy
 ```
 
