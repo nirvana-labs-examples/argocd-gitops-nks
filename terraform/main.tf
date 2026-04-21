@@ -19,7 +19,7 @@ locals {
   ingress_ip      = coalesce(var.ingress_public_ip, module.nks.ingress_vip)
   argocd_hostname = coalesce(var.argocd_hostname, "argocd.${local.ingress_ip}.nip.io")
 
-  argocd_chart_path = "${path.module}/../../argocd/argocd"
+  argocd_chart_path = "${path.module}/../argocd/argocd"
 }
 
 # ArgoCD installed by Terraform. After it comes up, the cert-manager
