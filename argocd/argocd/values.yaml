@@ -23,6 +23,14 @@ argo-cd:
       ingressClassName: cilium
       annotations:
         ingress.cilium.io/loadbalancer-mode: shared
+        # Cilium shared-mode ingress auto-redirects HTTP→HTTPS when any
+        # Ingress on the hostname has TLS configured — the redirect applies
+        # hostname-wide including `/.well-known/acme-challenge/*`, which
+        # prevents cert-manager from serving the initial HTTP-01 challenge
+        # (no cert exists yet; HTTPS reply would fail). Disable the redirect
+        # until the cert is issued (the chart keeps `tls: true` below so
+        # HTTPS still terminates once the cert is live).
+        ingress.cilium.io/force-https: disabled
         cert-manager.io/cluster-issuer: letsencrypt-prod
       tls: true
       extraTls:
