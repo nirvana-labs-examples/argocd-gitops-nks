@@ -22,13 +22,25 @@ locals {
   argocd_chart_path = "${path.module}/../argocd/argocd"
 }
 
+# Pre-create the argocd namespace as its own resource so cluster RBAC grants
+# access to it before helm_release runs its preflight checks. Creating the
+# namespace via helm_release's create_namespace attribute is too late —
+# helm tries to read existing release secrets first and fails on clusters
+# where secret access is namespace-scoped.
+resource "kubernetes_namespace" "argocd" {
+  metadata {
+    name = "argocd"
+  }
+}
+
 # ArgoCD installed by Terraform. After it comes up, the cert-manager
 # Application (below) syncs the wrapper chart from this repo — which
 # includes the Let's Encrypt ClusterIssuer in its templates.
 resource "helm_release" "argocd" {
-  name             = "argocd"
-  namespace        = "argocd"
-  create_namespace = true
+  depends_on = [kubernetes_namespace.argocd]
+
+  name      = "argocd"
+  namespace = kubernetes_namespace.argocd.metadata[0].name
 
   chart = local.argocd_chart_path
 
@@ -137,11 +149,11 @@ resource "kubectl_manifest" "cert_manager_app" {
 resource "kubernetes_secret" "argocd_repo" {
   count = var.repo_ssh_private_key_path != null ? 1 : 0
 
-  depends_on = [helm_release.argocd]
+  depends_on = [kubernetes_namespace.argocd]
 
   metadata {
     name      = "argocd-repo"
-    namespace = "argocd"
+    namespace = kubernetes_namespace.argocd.metadata[0].name
     labels = {
       "argocd.argoproj.io/secret-type" = "repository"
     }

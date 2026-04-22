@@ -24,8 +24,10 @@ output "argocd_url" {
 }
 
 output "argocd_password_cmd" {
-  description = "Command to read the initial admin password."
-  value       = "kubectl --kubeconfig ${module.nks.kubeconfig_path} -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d && echo"
+  description = "Command to read the initial admin password. Null until fetch_kubeconfig is true."
+  value = module.nks.kubeconfig_path != null ? (
+    "kubectl --kubeconfig ${module.nks.kubeconfig_path} -n argocd get secret argocd-initial-admin-secret -o jsonpath='{.data.password}' | base64 -d && echo"
+  ) : null
 }
 
 output "next_steps" {
@@ -40,7 +42,7 @@ EOT
     ) : (<<-EOT
 First apply complete. Cluster is provisioning.
 
-1. Wait ~5 minutes for the control plane to become reachable.
+1. Wait ~10 minutes for the control plane to come up and cilium-ingress to appear in the dashboard.
 2. Go to the Nirvana Console → Clusters → ${var.cluster_name} → Load Balancers
    tab → ⋮ menu next to cilium-ingress → Enable Public IP. Copy the IP.
 3. Set these env vars:
