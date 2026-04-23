@@ -73,3 +73,9 @@ variable "letsencrypt_acme_server" {
   type        = string
   default     = "https://acme-staging-v02.api.letsencrypt.org/directory"
 }
+
+variable "enable_coredns_hairpin" {
+  description = "Install a coredns-custom ConfigMap that resolves the ArgoCD hostname to the private VIP for in-cluster pods. Works around hairpin-NAT on NKS so cert-manager's HTTP-01 self-check succeeds. Only takes effect when ingress_public_ip is set — private-only mode doesn't need split-horizon DNS since the hostname already resolves to the private VIP."
+  type        = bool
+  default     = true
+}

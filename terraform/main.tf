@@ -55,6 +55,54 @@ resource "helm_release" "argocd" {
     name  = "argo-cd.server.ingress.extraTls[0].hosts[0]"
     value = local.argocd_hostname
   }
+
+  # After the initial install, ArgoCD self-manages via the Application CR
+  # below — it reconciles argocd/argocd/ from your fork. Ignoring values/set
+  # here prevents Terraform from fighting with ArgoCD on subsequent applies
+  # when `values.yaml` changes. The release itself still needs to exist so
+  # Terraform can destroy it on `terraform destroy`.
+  lifecycle {
+    ignore_changes = [
+      values,
+      set,
+      version,
+    ]
+  }
+}
+
+# CoreDNS hairpin-NAT workaround. Let's Encrypt HTTP-01 self-check runs
+# from cert-manager pods — those pods can't reach the cluster's own public
+# IP on NKS (no NAT hairpin). This split-horizon record resolves the
+# ArgoCD hostname to the private ingress VIP for in-cluster pods, so the
+# self-check skips the public round-trip. Let's Encrypt's external
+# validator still hits the public path unchanged.
+#
+# Not needed when ingress_public_ip is null (private-only): the hostname
+# resolves to the private VIP directly via nip.io and there's no public
+# path to hairpin around.
+#
+# CoreDNS on NKS imports `coredns-custom` by default (Corefile contains
+# `import /etc/coredns/custom/*.server`), so the ConfigMap is picked up
+# automatically without restarting CoreDNS.
+resource "kubernetes_config_map" "coredns_hairpin" {
+  count = var.enable_coredns_hairpin && var.ingress_public_ip != null ? 1 : 0
+
+  metadata {
+    name      = "coredns-custom"
+    namespace = "kube-system"
+  }
+
+  data = {
+    "hairpin.server" = <<-EOT
+      ${local.argocd_hostname} {
+          hosts {
+              ${module.nks.ingress_vip} ${local.argocd_hostname}
+              fallthrough
+          }
+          forward . /etc/resolv.conf
+      }
+    EOT
+  }
 }
 
 # Self-management Application: ArgoCD reconciles argocd/argocd/ from the

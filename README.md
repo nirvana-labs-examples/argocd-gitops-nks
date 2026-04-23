@@ -132,37 +132,13 @@ Set `TF_VAR_argocd_hostname=argocd.example.com` and create a DNS A record pointi
 - **HTTP-01** (default): Let's Encrypt validators hit port 80 on your ingress IP. Works out of the box with the nip.io hostname. Requires a **publicly reachable** IP.
 - **DNS-01**: Validates by creating TXT records in your DNS zone. Needed for wildcard certs and the only option if your ingress IP is private. Swap the `solvers[0].http01` block in the `ClusterIssuer` for a DNS-01 solver configured with your DNS provider's API credentials (see [cert-manager docs](https://cert-manager.io/docs/configuration/acme/dns01/)).
 
-## Troubleshooting cert-manager: HTTP-01 self-check timeout
+## Hairpin NAT and cert-manager
 
-If cert-manager's Challenge sits `Pending` forever with a message like *"failed to perform self check GET request ... context deadline exceeded"*, the symptom is:
+NKS doesn't hairpin traffic sent to the cluster's own public IP back into the cluster. Without a workaround, cert-manager's HTTP-01 self-check loops on *"failed to perform self check GET request ... context deadline exceeded"* — Let's Encrypt can reach the challenge URL externally, but cert-manager's own pod can't reach the same public URL from inside the cluster.
 
-- Let's Encrypt can reach the challenge URL externally (a fresh `curl http://argocd.<ip>.nip.io/` from your laptop returns 301 or 200)
-- cert-manager's own pod cannot reach the same public URL from inside the cluster
+Terraform handles this automatically by installing a `coredns-custom` ConfigMap in `kube-system` with a split-horizon record pointing the ArgoCD hostname at the **private** ingress VIP. In-cluster pods (including cert-manager) skip the public round-trip; Let's Encrypt's external validator still hits the public path unchanged. NKS's default Corefile imports `/etc/coredns/custom/*.server`, so the ConfigMap is picked up without restarting CoreDNS.
 
-That's **hairpin NAT**: the cluster's own public IP isn't routable back into the cluster from pods egressing to it. Common on platforms where the public IP is provided by an upstream NAT that doesn't loop traffic back.
-
-Fix via split-horizon DNS inside the cluster — resolve the hostname to the **private** ingress IP for in-cluster pods, so the self-check skips the public round-trip. Let's Encrypt's external validator still hits the public path unchanged.
-
-Create a `coredns-custom` ConfigMap in `kube-system`:
-
-```yaml
-apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: coredns-custom
-  namespace: kube-system
-data:
-  hairpin.server: |
-    argocd.<public-ip>.nip.io:1053 {
-        hosts {
-            <private-ingress-ip> argocd.<public-ip>.nip.io
-            fallthrough
-        }
-        forward . /etc/resolv.conf
-    }
-```
-
-Most Kubernetes distros (RKE2, k3s, kubeadm defaults) already mount an optional `coredns-custom` ConfigMap and `import /etc/coredns/custom/*.server` in the default Corefile. Check your Corefile for the import line; if present, the ConfigMap above is picked up automatically with no further config.
+Disable with `TF_VAR_enable_coredns_hairpin=false` if your environment doesn't need it (e.g. you're running on infrastructure where public-IP hairpinning works).
 
 ## Private-only access (no public IP)
 
@@ -229,6 +205,7 @@ Terraform creates a `kubernetes_secret` labeled `argocd.argoproj.io/secret-type=
 | `repo_ssh_private_key_path` | `null` | only for private forks |
 | `letsencrypt_email` | `null` | yes for Let's Encrypt |
 | `letsencrypt_acme_server` | staging | flip to prod URL when ready |
+| `enable_coredns_hairpin` | `true` | no (auto-applied when `ingress_public_ip` is set) |
 
 ## Cleanup
 
