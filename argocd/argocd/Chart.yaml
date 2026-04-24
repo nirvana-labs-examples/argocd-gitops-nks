@@ -1,0 +1,10 @@
+apiVersion: v2
+name: argocd
+description: Wrapper chart for Argo CD with Cilium ingress and Let's Encrypt TLS
+type: application
+version: 0.1.0
+appVersion: "v3.3.0"
+dependencies:
+  - name: argo-cd
+    version: "9.4.1"
+    repository: "https://argoproj.github.io/argo-helm"

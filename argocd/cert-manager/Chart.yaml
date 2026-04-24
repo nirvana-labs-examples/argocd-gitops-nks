@@ -1,0 +1,10 @@
+apiVersion: v2
+name: cert-manager
+description: Wrapper chart for cert-manager with a Let's Encrypt HTTP-01 ClusterIssuer
+type: application
+version: 0.1.0
+appVersion: "v1.15.3"
+dependencies:
+  - name: cert-manager
+    version: "v1.15.3"
+    repository: "https://charts.jetstack.io"
