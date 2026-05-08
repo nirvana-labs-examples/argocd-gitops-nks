@@ -105,92 +105,39 @@ resource "kubernetes_config_map" "coredns_hairpin" {
   }
 }
 
-# Self-management Application: ArgoCD reconciles argocd/argocd/ from the
-# fork so future changes to values.yaml don't require Terraform.
-resource "kubectl_manifest" "argocd_self_app" {
-  depends_on = [helm_release.argocd]
-
-  yaml_body = yamlencode({
-    apiVersion = "argoproj.io/v1alpha1"
-    kind       = "Application"
-    metadata = {
-      name       = "argocd"
-      namespace  = "argocd"
-      finalizers = ["resources-finalizer.argocd.argoproj.io"]
-    }
-    spec = {
-      project = "default"
-      source = {
-        repoURL        = var.argocd_repo_url
-        targetRevision = var.argocd_repo_branch
-        path           = "argocd/argocd"
-        helm = {
-          releaseName = "argocd"
-          parameters = [
-            { name = "argo-cd.global.domain", value = local.argocd_hostname },
-            { name = "argo-cd.server.ingress.extraTls[0].hosts[0]", value = local.argocd_hostname },
-          ]
-        }
-      }
-      destination = {
-        server    = "https://kubernetes.default.svc"
-        namespace = "argocd"
-      }
-      syncPolicy = {
-        automated   = { prune = true, selfHeal = true }
-        syncOptions = ["CreateNamespace=true", "ServerSideApply=true"]
-      }
-    }
+# Single ApplicationSet that auto-discovers any directory under argocd/ and
+# generates an Application per directory. Adding a new app is "drop a chart
+# in argocd/<name>/ and push" — no Terraform change needed.
+#
+# The Terraform-injected per-app helm parameters (argocd hostname,
+# letsencryptEmail, acmeServer) are merged in via the AppSet's templatePatch,
+# rendered via Go template per generated Application. Terraform's templatefile
+# uses ${...}; ArgoCD's Go template uses {{...}} — no syntax collision.
+locals {
+  appset_manifest = templatefile("${path.module}/manifests/applicationset.yaml.tftpl", {
+    repo_url            = var.argocd_repo_url
+    repo_branch         = var.argocd_repo_branch
+    argocd_hostname     = local.argocd_hostname
+    letsencrypt_enabled = var.letsencrypt_email != null
+    letsencrypt_email   = var.letsencrypt_email == null ? "" : var.letsencrypt_email
+    acme_server         = var.letsencrypt_acme_server
   })
 }
 
-# cert-manager as an ArgoCD Application. Points at argocd/cert-manager/
-# wrapper chart, which installs cert-manager via a dependency on the jetstack
-# chart AND applies a ClusterIssuer from its own templates/ once the
-# cert-manager CRDs are registered. Skipped when letsencrypt_email is null.
-resource "kubectl_manifest" "cert_manager_app" {
-  count = var.letsencrypt_email != null ? 1 : 0
+# Mirror the rendered manifest to disk so users can inspect what's actually
+# being applied, run kubectl apply on it directly for one-off testing, or
+# fork the template to customize. The file is gitignored — it's a
+# per-deployment artifact (varies by hostname, IP). Permanent customization
+# happens by editing manifests/applicationset.yaml.tftpl in your fork.
+resource "local_file" "appset_manifest" {
+  filename        = "${path.module}/manifests/applicationset.rendered.yaml"
+  content         = local.appset_manifest
+  file_permission = "0644"
+}
 
+resource "kubectl_manifest" "workloads_appset" {
   depends_on = [helm_release.argocd]
-
-  yaml_body = yamlencode({
-    apiVersion = "argoproj.io/v1alpha1"
-    kind       = "Application"
-    metadata = {
-      name       = "cert-manager"
-      namespace  = "argocd"
-      finalizers = ["resources-finalizer.argocd.argoproj.io"]
-    }
-    spec = {
-      project = "default"
-      source = {
-        repoURL        = var.argocd_repo_url
-        targetRevision = var.argocd_repo_branch
-        path           = "argocd/cert-manager"
-        helm = {
-          releaseName = "cert-manager"
-          parameters = [
-            { name = "letsencryptEmail", value = var.letsencrypt_email },
-            { name = "acmeServer", value = var.letsencrypt_acme_server },
-          ]
-        }
-      }
-      destination = {
-        server    = "https://kubernetes.default.svc"
-        namespace = "cert-manager"
-      }
-      syncPolicy = {
-        automated = { prune = true, selfHeal = true }
-        syncOptions = [
-          "CreateNamespace=true",
-          "ServerSideApply=true",
-          # Required: cert-manager Application creates CRDs AND resources
-          # that depend on those CRDs (the ClusterIssuer) in one sync.
-          "SkipDryRunOnMissingResource=true",
-        ]
-      }
-    }
-  })
+  yaml_body  = local.appset_manifest
 }
 
 # Optional: SSH deploy key for private forks.

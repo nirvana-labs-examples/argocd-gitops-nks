@@ -5,6 +5,9 @@ terraform.tfstate*
 *.tfplan
 .secrets/
 
+# Rendered manifests (per-deployment, written by Terraform for transparency)
+terraform/manifests/*.rendered.yaml
+
 # Environment
 .env
 *.local
