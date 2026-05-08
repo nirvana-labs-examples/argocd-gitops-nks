@@ -1,0 +1,76 @@
+apiVersion: argoproj.io/v1alpha1
+kind: ApplicationSet
+metadata:
+  name: workloads
+  namespace: argocd
+spec:
+  goTemplate: true
+  goTemplateOptions:
+    - missingkey=error
+  generators:
+    - git:
+        repoURL: ${repo_url}
+        revision: ${repo_branch}
+        directories:
+          - path: argocd/*
+%{ if !letsencrypt_enabled ~}
+          # Skip cert-manager when letsencrypt_email is unset (private-only mode).
+          - path: argocd/cert-manager
+            exclude: true
+%{ endif ~}
+  template:
+    metadata:
+      name: '{{ .path.basename }}'
+      finalizers:
+        - resources-finalizer.argocd.argoproj.io
+    spec:
+      project: default
+      source:
+        repoURL: ${repo_url}
+        targetRevision: ${repo_branch}
+        path: '{{ .path.path }}'
+        # No source-type block here — ArgoCD auto-detects per directory:
+        #   Chart.yaml present  → Helm (release name defaults to Application name)
+        #   kustomization.yaml  → Kustomize
+        #   neither             → plain YAML directory
+        # The templatePatch below adds spec.source.helm.parameters for the
+        # specific apps that need Terraform-injected helm values.
+      destination:
+        server: https://kubernetes.default.svc
+        namespace: '{{ .path.basename }}'
+      syncPolicy:
+        automated:
+          prune: true
+          selfHeal: true
+        syncOptions:
+          - CreateNamespace=true
+          - ServerSideApply=true
+          # CRD-and-CR-in-same-sync support (e.g. cert-manager + ClusterIssuer).
+          # Harmless for charts without CRDs.
+          - SkipDryRunOnMissingResource=true
+  # Per-app Helm parameters. Terraform's templatefile() interpolates the
+  # dollar-brace placeholders below at apply time; ArgoCD's Go template
+  # evaluates the {{ ... }} per generated Application at sync time.
+  templatePatch: |
+    {{- if eq .path.basename "argocd" }}
+    spec:
+      source:
+        helm:
+          parameters:
+            - name: argo-cd.global.domain
+              value: "${argocd_hostname}"
+            - name: argo-cd.server.ingress.extraTls[0].hosts[0]
+              value: "${argocd_hostname}"
+    {{- end }}
+%{ if letsencrypt_enabled ~}
+    {{- if eq .path.basename "cert-manager" }}
+    spec:
+      source:
+        helm:
+          parameters:
+            - name: letsencryptEmail
+              value: "${letsencrypt_email}"
+            - name: acmeServer
+              value: "${acme_server}"
+    {{- end }}
+%{ endif ~}

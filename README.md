@@ -12,7 +12,7 @@
 
 Starter example for deploying [Argo CD](https://argo-cd.readthedocs.io) on a Nirvana Labs NKS cluster with GitOps-style self-management.
 
-> This repo is a starting point, not production-ready. It shows one cluster, one Application (ArgoCD itself), and a minimal cert-manager wiring so you get a real TLS URL. Extend it by adding more Applications pointing at additional paths under `argocd/`.
+> This repo is a starting point, not production-ready. It shows one cluster, an ApplicationSet that bootstraps ArgoCD itself plus a minimal cert-manager wiring so you get a real TLS URL, and the "drop a chart in `argocd/<new-app>/` and push" lifecycle for everything else.
 
 ## Architecture
 
@@ -24,10 +24,12 @@ flowchart LR
         ingress[cilium-ingress<br/>LoadBalancer]
         certmgr[cert-manager]
         argocd[argo-cd]
-        app_self[Application CR<br/>argocd self]
-        app_cm[Application CR<br/>cert-manager]
-        argocd --- app_self
-        argocd --- app_cm
+        appset[ApplicationSet<br/>workloads]
+        app_self[Application<br/>argocd]
+        app_cm[Application<br/>cert-manager]
+        argocd --- appset
+        appset --> app_self
+        appset --> app_cm
     end
 
     subgraph fork["your fork"]
@@ -37,14 +39,13 @@ flowchart LR
 
     tf -- "terraform-nirvana-nks" --> cluster
     tf -. "helm_release" .-> argocd
-    tf -. "kubectl_manifest" .-> app_self
-    tf -. "kubectl_manifest" .-> app_cm
-    app_self == "reconciles" ==> vals
-    app_cm == "reconciles" ==> cm
+    tf -. "kubectl_manifest" .-> appset
+    appset == "scans" ==> vals
+    appset == "scans" ==> cm
     app_cm -- "deploys" --> certmgr
 ```
 
-After the two-phase `terraform apply`, any change to `argocd/argocd/values.yaml` or `argocd/cert-manager/` in your fork reconciles into the cluster without re-running Terraform.
+After the two-phase `terraform apply`, any change to `argocd/argocd/values.yaml`, `argocd/cert-manager/`, or any new `argocd/<app>/` directory in your fork reconciles into the cluster without re-running Terraform.
 
 ## Prerequisites
 
@@ -113,15 +114,26 @@ After the two-phase `terraform apply`, any change to `argocd/argocd/values.yaml`
 
 This is the pattern upstream Argo CD documents as [Manage Argo CD Using Argo CD](https://argo-cd.readthedocs.io/en/stable/operator-manual/declarative-setup/#manage-argo-cd-using-argo-cd). We use Helm rather than the upstream Kustomize suggestion — same `Application` + `ServerSideApply=true` pattern, different tooling — so the `values.yaml` in your fork is the single source of truth for both the initial Terraform install and ArgoCD's reconciliation.
 
-The second apply creates two ArgoCD `Application`s:
+The second apply creates a single `ApplicationSet` named **`workloads`** that auto-discovers any directory under `argocd/` and generates one ArgoCD `Application` per directory. Out of the box that's:
 
 - **`argocd`** — `path: argocd/argocd` — ArgoCD manages its own Helm values.
-- **`cert-manager`** — `path: argocd/cert-manager` — cert-manager chart + Let's Encrypt `ClusterIssuer` are reconciled from the repo, not Terraform.
+- **`cert-manager`** — `path: argocd/cert-manager` — cert-manager + Let's Encrypt `ClusterIssuer`. Skipped automatically when `letsencrypt_email` is unset (private-only mode).
 
-From now on, any change to `argocd/argocd/values.yaml` or `argocd/cert-manager/` in your fork — new RBAC rules, changed domain, additional configmaps — gets applied by ArgoCD without Terraform involvement. To add a new app:
+Per-app Helm parameters that come from Terraform (the ArgoCD hostname, `letsencryptEmail`, `acmeServer`) are injected into the AppSet manifest via `templatefile()` at apply time, then merged into each generated Application by ArgoCD's `templatePatch`. The template lives at [`terraform/manifests/applicationset.yaml.tftpl`](terraform/manifests/applicationset.yaml.tftpl); each `terraform apply` also writes the fully-rendered output to `terraform/manifests/applicationset.rendered.yaml` (gitignored) for inspection — `kubectl apply -f` it directly to test ad-hoc edits, knowing the next `terraform apply` will overwrite the file. For permanent customization, edit the `.tftpl` template in your fork.
 
-1. Create `argocd/<new-app>/` with a Helm chart or Kustomize manifests.
-2. Create another ArgoCD Application (in `terraform/main.tf` or directly in the cluster) pointing at that path.
+From now on, any change to `argocd/argocd/values.yaml` or `argocd/cert-manager/` in your fork — new RBAC rules, changed domain, additional configmaps — gets applied by ArgoCD without Terraform involvement.
+
+**To add a new app:**
+
+1. Drop a directory at `argocd/<new-app>/`. Source type is auto-detected per directory: a `Chart.yaml` makes it Helm, a `kustomization.yaml` makes it Kustomize, neither makes it a plain-YAML directory.
+2. Commit and push to your fork.
+3. Wait for the AppSet to refresh (~3 min by default), or trigger immediately:
+   ```bash
+   kubectl patch applicationset workloads -n argocd --type merge \
+     -p '{"metadata":{"annotations":{"argocd.argoproj.io/refresh":"now"}}}'
+   ```
+
+A new `Application` named after the directory's basename is generated and synced into a namespace of the same name. No Terraform run required.
 
 ## Using your own hostname
 
