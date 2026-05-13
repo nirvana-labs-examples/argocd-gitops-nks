@@ -20,6 +20,12 @@ locals {
   argocd_hostname = coalesce(var.argocd_hostname, "argocd.${local.ingress_ip}.nip.io")
 
   argocd_chart_path = "${path.module}/../argocd/argocd"
+
+  coredns_port = (
+    var.enable_coredns_hairpin && var.ingress_public_ip != null
+    ? regex("\\.:(\\d+)", data.kubernetes_config_map.coredns[0].data["Corefile"])[0]
+    : "53"
+  )
 }
 
 # Pre-create the argocd namespace as its own resource so cluster RBAC grants
@@ -84,6 +90,19 @@ resource "helm_release" "argocd" {
 # CoreDNS on NKS imports `coredns-custom` by default (Corefile contains
 # `import /etc/coredns/custom/*.server`), so the ConfigMap is picked up
 # automatically without restarting CoreDNS.
+#
+# Read the live CoreDNS Corefile so the hairpin zone binds to the same
+# port the main server uses. NKS clusters vary on this (commonly :53, but
+# some run :1053) — parsing keeps the workaround portable without a knob.
+data "kubernetes_config_map" "coredns" {
+  count = var.enable_coredns_hairpin && var.ingress_public_ip != null ? 1 : 0
+
+  metadata {
+    name      = "coredns"
+    namespace = "kube-system"
+  }
+}
+
 resource "kubernetes_config_map" "coredns_hairpin" {
   count = var.enable_coredns_hairpin && var.ingress_public_ip != null ? 1 : 0
 
@@ -94,7 +113,7 @@ resource "kubernetes_config_map" "coredns_hairpin" {
 
   data = {
     "hairpin.server" = <<-EOT
-      ${local.argocd_hostname} {
+      ${local.argocd_hostname}:${local.coredns_port} {
           hosts {
               ${module.nks.ingress_vip} ${local.argocd_hostname}
               fallthrough
