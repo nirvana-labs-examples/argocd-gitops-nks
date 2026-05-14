@@ -18,13 +18,13 @@ variable "cluster_name" {
 variable "node_count" {
   description = "Worker node count (single pool)."
   type        = number
-  default     = 2
+  default     = 1
 }
 
 variable "instance_type" {
   description = "Worker instance type."
   type        = string
-  default     = "n1-standard-4"
+  default     = "n1-highcpu-2"
 }
 
 variable "fetch_kubeconfig" {
